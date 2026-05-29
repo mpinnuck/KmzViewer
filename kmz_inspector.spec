@@ -28,7 +28,7 @@ exe = EXE(
     console=False,
     disable_windowed_traceback=False,
     argv_emulation=False,
-    target_arch=None,
+    target_arch='arm64',
     codesign_identity=None,
     entitlements_file=None,
 )
@@ -40,4 +40,11 @@ coll = COLLECT(
     upx=True,
     upx_exclude=[],
     name='KMZInspector',
+)
+
+app = BUNDLE(
+    coll,
+    name='KMZInspector.app',
+    icon=None,
+    bundle_identifier=None,
 )

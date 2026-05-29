@@ -4,6 +4,13 @@ KMZ Inspector
 Entry point — run this file to launch the app.
 
 Usage:
+    # Activate virtual environment
+    source .venv/bin/activate
+
+    # Build app (Apple Silicon / arm64)
+    /Users/markpinnuck/Dev/GitHub/KmzViewer/.venv/bin/python -m PyInstaller --clean --noconfirm kmz_inspector.spec
+
+    # Run app
     python kmz_inspector.py
     python kmz_inspector.py path/to/mission.kmz   # optional pre-load
 """
