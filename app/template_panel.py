@@ -3,6 +3,10 @@ template_panel.py
 Top panel — displays parsed content of wpmz/template.kml.
 Shows mission config, drone/payload info, and document metadata
 as labelled field rows grouped into sections.
+
+source .venv/bin/activate
+Build command
+pyinstaller kmz_inspector.spec
 """
 
 from __future__ import annotations
