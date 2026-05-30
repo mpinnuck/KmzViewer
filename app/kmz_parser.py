@@ -120,6 +120,7 @@ class Waypoint:
     speed: str = ""
     waypoint_type: str = ""
     gimbal_pitch_angle: str = ""
+    gimbal_pitch_source: str = ""
     use_global_speed: str = ""
     use_global_height_mode: str = ""
     actions: list[WaypointAction] = field(default_factory=list)
@@ -192,6 +193,124 @@ PAYLOAD_ENUM_MAP: dict[str, str] = {
 # ---------------------------------------------------------------------------
 
 class KMZParser:
+
+    @staticmethod
+    def patch_gimbal_pitch_from_actions(input_kmz_path: str, output_kmz_path: str) -> tuple[int, int]:
+        """
+        Copy per-waypoint gimbal pitch from action params into
+        waypointGimbalHeadingParam/waypointGimbalPitchAngle and write a new KMZ.
+
+        Returns:
+            (patched_waypoints, total_waypoints)
+        """
+        with zipfile.ZipFile(input_kmz_path, "r") as in_zf:
+            member_names = in_zf.namelist()
+            waylines_member = KMZParser._find_member(in_zf, "waylines.wpml")
+            if not waylines_member:
+                waylines_member = KMZParser._find_member(in_zf, "waylines.kml")
+            if not waylines_member:
+                raise ValueError("waylines.wpml not found in archive")
+
+            raw = in_zf.read(waylines_member)
+            root = ET.fromstring(raw)
+            ns = _detect_wpml_ns(root)
+
+            ET.register_namespace("", KML_NS)
+            ET.register_namespace("wpml", ns)
+
+            doc = root.find(_tag(KML_NS, "Document"))
+            if doc is None:
+                doc = root
+
+            folder = doc.find(_tag(KML_NS, "Folder"))
+            if folder is None:
+                folder = doc
+
+            total_waypoints = 0
+            patched_waypoints = 0
+
+            for pm in folder.findall(_tag(KML_NS, "Placemark")):
+                total_waypoints += 1
+
+                action_pitch = ""
+                action_groups = pm.findall(_tag(ns, "actionGroup"))
+                if not action_groups:
+                    action_groups = pm.findall(_tag(WPML_NS_ALT, "actionGroup"))
+
+                for action_group in action_groups:
+                    for action_node in action_group.findall(_tag(ns, "action")):
+                        func = _find_text(action_node, ns, "actionActuatorFunc").strip().lower()
+                        if func not in {"gimbalevenlyrotate", "gimbalrotate"}:
+                            continue
+
+                        params = action_node.find(_tag(ns, "actionActuatorFuncParam"))
+                        if params is None:
+                            params = action_node.find(_tag(WPML_NS_ALT, "actionActuatorFuncParam"))
+                        if params is None:
+                            continue
+
+                        for child in params:
+                            local = child.tag.split("}")[-1] if "}" in child.tag else child.tag
+                            if local == "gimbalPitchRotateAngle":
+                                action_pitch = (child.text or "").strip()
+                                break
+                        if action_pitch:
+                            break
+                    if action_pitch:
+                        break
+
+                if not action_pitch:
+                    continue
+
+                gimbal_heading = pm.find(_tag(ns, "waypointGimbalHeadingParam"))
+                if gimbal_heading is None:
+                    gimbal_heading = pm.find(_tag(WPML_NS_ALT, "waypointGimbalHeadingParam"))
+                if gimbal_heading is None:
+                    gimbal_heading = ET.SubElement(pm, _tag(ns, "waypointGimbalHeadingParam"))
+
+                pitch_node = gimbal_heading.find(_tag(ns, "waypointGimbalPitchAngle"))
+                if pitch_node is None:
+                    pitch_node = gimbal_heading.find(_tag(WPML_NS_ALT, "waypointGimbalPitchAngle"))
+                if pitch_node is None:
+                    pitch_node = ET.SubElement(gimbal_heading, _tag(ns, "waypointGimbalPitchAngle"))
+
+                if (pitch_node.text or "").strip() != action_pitch:
+                    pitch_node.text = action_pitch
+                    patched_waypoints += 1
+
+            updated_waylines = ET.tostring(root, encoding="utf-8", xml_declaration=True)
+
+            with zipfile.ZipFile(output_kmz_path, "w") as out_zf:
+                for name in member_names:
+                    info = in_zf.getinfo(name)
+                    if name == waylines_member:
+                        out_zf.writestr(info, updated_waylines)
+                    else:
+                        out_zf.writestr(info, in_zf.read(name))
+
+        return patched_waypoints, total_waypoints
+
+    @staticmethod
+    def _extract_gimbal_pitch_from_actions(actions: list[WaypointAction]) -> str:
+        """Return gimbal pitch from the first gimbal-related action params."""
+        for action in actions:
+            func = (action.action_actuator_func or "").strip().lower()
+            if func not in {"gimbalevenlyrotate", "gimbalrotate"}:
+                continue
+            value = action.params.get("gimbalPitchRotateAngle", "").strip()
+            if value:
+                return value
+        return ""
+
+    @staticmethod
+    def _is_zero_angle(value: str) -> bool:
+        """True when a gimbal angle string is numerically zero."""
+        if not value:
+            return False
+        try:
+            return abs(float(value)) < 1e-9
+        except ValueError:
+            return False
 
     @staticmethod
     def parse(kmz_path: str) -> KMZData:
@@ -398,7 +517,7 @@ class KMZParser:
             ("speed",),
         )
         wp.waypoint_type         = _find_text(pm, ns, "waypointType")
-        wp.gimbal_pitch_angle = _find_first_text(
+        direct_gimbal_pitch_angle = _find_first_text(
             pm,
             ns,
             ("waypointGimbalHeadingParam", "waypointGimbalPitchAngle"),
@@ -412,11 +531,12 @@ class KMZParser:
         if not wp.speed and wp.use_global_speed.lower() == "true":
             wp.speed = mission_config.global_waypoint_speed
 
-        # Actions
-        action_group = pm.find(_tag(ns, "actionGroup"))
-        if action_group is None:
-            action_group = pm.find(_tag(WPML_NS_ALT, "actionGroup"))
-        if action_group is not None:
+        # Actions (some missions include multiple actionGroup blocks per waypoint)
+        action_groups = pm.findall(_tag(ns, "actionGroup"))
+        if not action_groups:
+            action_groups = pm.findall(_tag(WPML_NS_ALT, "actionGroup"))
+
+        for action_group in action_groups:
             for action_node in action_group.findall(_tag(ns, "action")):
                 wa = WaypointAction()
                 wa.action_id = _find_text(action_node, ns, "actionId")
@@ -429,5 +549,18 @@ class KMZParser:
                         local = child.tag.split("}")[-1] if "}" in child.tag else child.tag
                         wa.params[local] = (child.text or "").strip()
                 wp.actions.append(wa)
+
+        action_gimbal_pitch_angle = KMZParser._extract_gimbal_pitch_from_actions(wp.actions)
+
+        # Dronelink-generated waylines often set waypoint pitch to 0 and keep
+        # the effective pitch in action params. Prefer that action value when present.
+        if direct_gimbal_pitch_angle and not (
+            KMZParser._is_zero_angle(direct_gimbal_pitch_angle) and action_gimbal_pitch_angle
+        ):
+            wp.gimbal_pitch_angle = direct_gimbal_pitch_angle
+            wp.gimbal_pitch_source = "waypoint"
+        else:
+            wp.gimbal_pitch_angle = action_gimbal_pitch_angle
+            wp.gimbal_pitch_source = "action" if wp.gimbal_pitch_angle else ""
 
         return wp

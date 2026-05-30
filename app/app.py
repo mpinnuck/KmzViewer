@@ -21,7 +21,7 @@ from app import theme as T
 class KMZInspectorApp:
 
     APP_TITLE = "KMZ Inspector"
-    APP_VERSION = "v1.0"
+    APP_VERSION = "v2.0"
 
     def __init__(self, preload_path: str | None = None) -> None:
         self._root = tk.Tk()
@@ -111,6 +111,20 @@ class KMZInspectorApp:
             state=tk.DISABLED,
         )
         self._copy_btn.pack(side=tk.LEFT, padx=(0, T.PAD), pady=6)
+
+        # Gimbal patch button
+        self._gimbal_patch_btn = tk.Button(
+            toolbar,
+            text="  ⤓  GimbalPatch",
+            font=T.FONT_BUTTON,
+            bg=T.BG_HEADER, fg=T.FG_SECONDARY,
+            activebackground=T.BG_PANEL, activeforeground=T.FG_PRIMARY,
+            relief="flat", bd=0, padx=T.PAD_SMALL, pady=6,
+            cursor="hand2",
+            command=self._on_gimbal_patch_clicked,
+            state=tk.DISABLED,
+        )
+        self._gimbal_patch_btn.pack(side=tk.LEFT, padx=(0, T.PAD), pady=6)
 
         # File path label
         self._path_var = tk.StringVar(value="No file loaded")
@@ -221,6 +235,35 @@ class KMZInspectorApp:
         self._root.update()
         self._status("Copied template data and waypoint list to clipboard")
 
+    def _on_gimbal_patch_clicked(self) -> None:
+        if not self._current_path:
+            self._status("Open a KMZ first")
+            return
+
+        src = Path(self._current_path)
+        output_path = str(src.with_name(f"{src.stem}_gp{src.suffix}"))
+
+        self._status("Applying gimbal patch…")
+        self._root.update_idletasks()
+
+        try:
+            patched_count, total_waypoints = KMZParser.patch_gimbal_pitch_from_actions(
+                self._current_path,
+                output_path,
+            )
+        except Exception as exc:
+            messagebox.showerror("GimbalPatch", f"Failed to patch KMZ:\n{exc}")
+            self._status(f"Gimbal patch failed: {exc}")
+            return
+
+        self._status(
+            f"Gimbal patch saved: {Path(output_path).name}  —  "
+            f"patched {patched_count}/{total_waypoints} waypoint(s)"
+        )
+
+        # Automatically load patched output for immediate inspection.
+        self._open_file(output_path)
+
     def _open_file(self, path: str) -> None:
         self._status("Parsing…")
         self._root.update_idletasks()
@@ -257,6 +300,7 @@ class KMZInspectorApp:
         # Enable reload
         self._reload_btn.config(state=tk.NORMAL, fg=T.FG_ACCENT)
         self._copy_btn.config(state=tk.NORMAL, fg=T.FG_ACCENT)
+        self._gimbal_patch_btn.config(state=tk.NORMAL, fg=T.FG_ACCENT)
 
         # Update window title
         self._root.title(f"{self.APP_TITLE}  —  {Path(path).name}")

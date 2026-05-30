@@ -100,6 +100,7 @@ def _build_treeview(parent: tk.Widget) -> ttk.Treeview:
 
     tv.tag_configure("odd",  background=T.BG_TREE)
     tv.tag_configure("even", background=T.BG_TREE_ALT)
+    tv.tag_configure("action_gimbal", foreground=T.FG_GOOD)
 
     return tv
 
@@ -183,7 +184,8 @@ class _DetailPane(tk.Frame):
             speed_tag = "value"
         row("Speed",              speed_str, speed_tag)
         row("Waypoint Type",      wp.waypoint_type or "—")
-        row("Gimbal Pitch",       f"{wp.gimbal_pitch_angle}°" if wp.gimbal_pitch_angle else "—")
+        gimbal_tag = "good" if wp.gimbal_pitch_source == "action" else "value"
+        row("Gimbal Pitch",       f"{wp.gimbal_pitch_angle}°" if wp.gimbal_pitch_angle else "—", gimbal_tag)
         row("Use Global Speed",   wp.use_global_speed or "—")
         row("Use Global Height",  wp.use_global_height_mode or "—")
 
@@ -380,6 +382,9 @@ class WaypointsPanel(tk.Frame):
 
         for i, wp in enumerate(waypoints):
             tag = "even" if i % 2 == 0 else "odd"
+            tags = [tag]
+            if wp.gimbal_pitch_source == "action":
+                tags.append("action_gimbal")
             speed_str = _fmt_speed_with_kmh(wp.speed)
 
             lat_str = f"{float(wp.latitude):.7f}"  if wp.latitude  else ""
@@ -400,7 +405,7 @@ class WaypointsPanel(tk.Frame):
                     f"{wp.gimbal_pitch_angle}°" if wp.gimbal_pitch_angle else "—",
                     len(wp.actions) if wp.actions else 0,
                 ),
-                tags=(tag,),
+                tags=tuple(tags),
             )
 
     # ------------------------------------------------------------------
