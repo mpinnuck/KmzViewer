@@ -26,6 +26,26 @@ python kmz_inspector.py
 python kmz_inspector.py path/to/mission.kmz
 ```
 
+## GitHub Release On Tag
+
+This repo includes a GitHub Actions workflow at [.github/workflows/release.yml](.github/workflows/release.yml).
+When you push a tag like `v1.2.3`, GitHub will:
+
+- Build Windows artifact (`KMZInspector-windows.zip`)
+- Build macOS artifact (`KMZInspector-macos.zip`)
+- Create/update the GitHub Release for that tag and attach both files
+
+Commands to trigger a release build:
+
+```bash
+git add .
+git commit -m "Prepare release v1.2.3"
+git push origin main
+
+git tag v1.2.3
+git push origin v1.2.3
+```
+
 ## Requirements
 
 - Python 3.10+
