@@ -7,6 +7,8 @@ wires the parser to the two panels.
 from __future__ import annotations
 
 from datetime import datetime
+from xml.dom import minidom
+import re
 import os
 import tkinter as tk
 from tkinter import filedialog, ttk, messagebox
@@ -21,7 +23,7 @@ from app import theme as T
 class KMZInspectorApp:
 
     APP_TITLE = "KMZ Inspector"
-    APP_VERSION = "v2.0"
+    APP_VERSION = "v2.1"
 
     def __init__(self, preload_path: str | None = None) -> None:
         self._root = tk.Tk()
@@ -125,6 +127,20 @@ class KMZInspectorApp:
             state=tk.DISABLED,
         )
         self._gimbal_patch_btn.pack(side=tk.LEFT, padx=(0, T.PAD), pady=6)
+
+        # View raw WPML button
+        self._view_wpml_btn = tk.Button(
+            toolbar,
+            text="  ≡  View WPML",
+            font=T.FONT_BUTTON,
+            bg=T.BG_HEADER, fg=T.FG_SECONDARY,
+            activebackground=T.BG_PANEL, activeforeground=T.FG_PRIMARY,
+            relief="flat", bd=0, padx=T.PAD_SMALL, pady=6,
+            cursor="hand2",
+            command=self._on_view_wpml_clicked,
+            state=tk.DISABLED,
+        )
+        self._view_wpml_btn.pack(side=tk.LEFT, padx=(0, T.PAD), pady=6)
 
         # File path label
         self._path_var = tk.StringVar(value="No file loaded")
@@ -264,6 +280,132 @@ class KMZInspectorApp:
         # Automatically load patched output for immediate inspection.
         self._open_file(output_path)
 
+    def _on_view_wpml_clicked(self) -> None:
+        if not self._current_data or not self._current_data.waylines:
+            self._status("No WPML content loaded")
+            return
+
+        wpml_text = self._current_data.waylines.raw_xml or ""
+        if not wpml_text:
+            self._status("WPML content is empty")
+            return
+
+        display_wpml = self._pretty_print_xml_text(wpml_text)
+
+        win = tk.Toplevel(self._root)
+        win.title("Raw WPML")
+        win.geometry("980x720")
+        win.minsize(700, 420)
+        win.configure(bg=T.BG_PANEL)
+        win.transient(self._root)
+
+        top = tk.Frame(win, bg=T.BG_HEADER, height=40)
+        top.pack(fill=tk.X, side=tk.TOP)
+        top.pack_propagate(False)
+
+        tk.Label(
+            top,
+            text="waylines.wpml",
+            font=T.FONT_HEADER,
+            bg=T.BG_HEADER,
+            fg=T.FG_ACCENT,
+            padx=T.PAD,
+        ).pack(side=tk.LEFT)
+
+        def _copy_wpml() -> None:
+            self._root.clipboard_clear()
+            self._root.clipboard_append(wpml_text)
+            self._root.update()
+            self._status("Copied WPML to clipboard")
+
+        copy_btn = tk.Button(
+            top,
+            text="Copy To Clipboard",
+            font=T.FONT_BUTTON,
+            bg=T.BG_BUTTON,
+            fg="#000000",
+            activebackground=T.BG_BUTTON_HOV,
+            activeforeground="#000000",
+            relief="flat",
+            bd=0,
+            padx=T.PAD_SMALL,
+            pady=4,
+            cursor="hand2",
+            command=_copy_wpml,
+        )
+        copy_btn.pack(side=tk.RIGHT, padx=T.PAD, pady=6)
+
+        body = tk.Frame(win, bg=T.BG_PANEL)
+        body.pack(fill=tk.BOTH, expand=True)
+
+        yscroll = ttk.Scrollbar(body, orient=tk.VERTICAL)
+        xscroll = ttk.Scrollbar(body, orient=tk.HORIZONTAL)
+        gutter = tk.Text(
+            body,
+            width=6,
+            wrap=tk.NONE,
+            bg=T.BG_ROOT,
+            fg=T.FG_SECONDARY,
+            font=T.FONT_VALUE,
+            relief="flat",
+            borderwidth=0,
+            padx=6,
+            pady=T.PAD_SMALL,
+            takefocus=0,
+        )
+        txt = tk.Text(
+            body,
+            wrap=tk.NONE,
+            bg=T.BG_ENTRY,
+            fg=T.FG_VALUE,
+            font=T.FONT_VALUE,
+            relief="flat",
+            borderwidth=0,
+            yscrollcommand=yscroll.set,
+            xscrollcommand=xscroll.set,
+            padx=T.PAD,
+            pady=T.PAD_SMALL,
+        )
+        def _sync_yview(*args: str) -> None:
+            txt.yview(*args)
+            gutter.yview(*args)
+
+        def _sync_yscroll(first: str, last: str) -> None:
+            yscroll.set(first, last)
+            gutter.yview_moveto(first)
+
+        yscroll.config(command=_sync_yview)
+        xscroll.config(command=txt.xview)
+
+        gutter.config(yscrollcommand=lambda first, last: None)
+        txt.tag_configure("xml_tag", foreground="#8a1f11")
+        txt.tag_configure("xml_tag_name", foreground="#8a1f11")
+        txt.tag_configure("xml_placemark", foreground=T.FG_BADGE, background=T.BG_BADGE_GOOD)
+        txt.tag_configure("xml_attr_name", foreground="#8a5a00")
+        txt.tag_configure("xml_attr_eq", foreground=T.FG_SECONDARY)
+        txt.tag_configure("xml_attr_value", foreground=T.FG_PRIMARY)
+        txt.tag_configure("xml_text", foreground=T.FG_PRIMARY)
+        txt.tag_configure("xml_decl", foreground="#6b778d")
+        txt.tag_configure("xml_comment", foreground="#7a869a")
+        txt.tag_configure("xml_bracket", foreground="#8a1f11")
+        txt.tag_raise("xml_placemark")
+
+        gutter.config(state=tk.NORMAL)
+        gutter.delete("1.0", tk.END)
+        gutter.insert("1.0", self._build_line_numbers(display_wpml))
+        gutter.config(state=tk.DISABLED)
+
+        yscroll.pack(side=tk.RIGHT, fill=tk.Y)
+        xscroll.pack(side=tk.BOTTOM, fill=tk.X)
+        gutter.pack(side=tk.LEFT, fill=tk.Y)
+        txt.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+
+        txt.config(yscrollcommand=_sync_yscroll)
+        txt.insert("1.0", display_wpml)
+        self._format_xml_text(txt, display_wpml)
+        self._center_toplevel_window(win)
+        txt.focus_set()
+
     def _open_file(self, path: str) -> None:
         self._status("Parsing…")
         self._root.update_idletasks()
@@ -301,6 +443,7 @@ class KMZInspectorApp:
         self._reload_btn.config(state=tk.NORMAL, fg=T.FG_ACCENT)
         self._copy_btn.config(state=tk.NORMAL, fg=T.FG_ACCENT)
         self._gimbal_patch_btn.config(state=tk.NORMAL, fg=T.FG_ACCENT)
+        self._view_wpml_btn.config(state=tk.NORMAL, fg=T.FG_ACCENT)
 
         # Update window title
         self._root.title(f"{self.APP_TITLE}  —  {Path(path).name}")
@@ -343,6 +486,90 @@ class KMZInspectorApp:
             return f"{mps:.2f} m/s ({mps * 3.6:.2f} km/h)"
         except (ValueError, TypeError):
             return raw
+
+    @staticmethod
+    def _pretty_print_xml_text(xml_text: str) -> str:
+        try:
+            dom = minidom.parseString(xml_text.encode("utf-8"))
+            pretty = dom.toprettyxml(indent="  ")
+        except Exception:
+            return xml_text
+
+        lines = [line for line in pretty.splitlines() if line.strip()]
+        return "\n".join(lines)
+
+    @staticmethod
+    def _build_line_numbers(xml_text: str) -> str:
+        line_count = max(xml_text.count("\n") + 1, 1)
+        width = len(str(line_count))
+        return "\n".join(f"{i:>{width}}" for i in range(1, line_count + 1))
+
+    @staticmethod
+    def _format_xml_text(widget: tk.Text, xml_text: str) -> None:
+        def index_from_offset(offset: int) -> str:
+            return f"1.0 + {offset} chars"
+
+        def tag_range(start_offset: int, end_offset: int) -> tuple[str, str]:
+            return index_from_offset(start_offset), index_from_offset(end_offset)
+
+        def highlight_tag(start_offset: int, token: str) -> None:
+            if token.startswith("<?xml"):
+                start, end = tag_range(start_offset, start_offset + len(token))
+                widget.tag_add("xml_decl", start, end)
+                return
+
+            if token.startswith("<!--"):
+                start, end = tag_range(start_offset, start_offset + len(token))
+                widget.tag_add("xml_comment", start, end)
+                return
+
+            m = re.match(r"(<)(/?)([A-Za-z_:][\w:.-]*)(.*?)(/?>)$", token, re.DOTALL)
+            if not m:
+                start, end = tag_range(start_offset, start_offset + len(token))
+                widget.tag_add("xml_tag", start, end)
+                return
+
+            prefix, closing, name, attrs, suffix = m.groups()
+            cursor = start_offset
+
+            def add(part: str, tag_name: str) -> None:
+                nonlocal cursor
+                if not part:
+                    return
+                start, end = tag_range(cursor, cursor + len(part))
+                widget.tag_add(tag_name, start, end)
+                cursor += len(part)
+
+            add(prefix, "xml_bracket")
+            add(closing, "xml_bracket")
+            add(name, "xml_tag_name")
+
+            if name == "Placemark":
+                add(name, "xml_placemark")
+
+            attr_re = re.compile(r"(\s+)([A-Za-z_:][\w:.-]*)(\s*=\s*)(\".*?\"|'.*?')", re.DOTALL)
+            pos = 0
+            for attr_match in attr_re.finditer(attrs):
+                leading, attr_name, eq_part, attr_value = attr_match.groups()
+                add(attrs[pos:attr_match.start()], "xml_tag")
+                add(leading, "xml_tag")
+                add(attr_name, "xml_attr_name")
+                add(eq_part, "xml_attr_eq")
+                add(attr_value, "xml_attr_value")
+                pos = attr_match.end()
+
+            add(attrs[pos:], "xml_tag")
+            add(suffix, "xml_bracket")
+
+        for match in re.finditer(r"<!--.*?-->|<\?xml.*?\?>|<[^>]+>|[^<]+", xml_text, re.DOTALL):
+            token = match.group(0)
+            start = index_from_offset(match.start())
+            end = index_from_offset(match.end())
+
+            if token.startswith("<"):
+                highlight_tag(match.start(), token)
+            elif token.strip():
+                widget.tag_add("xml_text", start, end)
 
     def _build_clipboard_export(self, data: KMZData) -> str:
         tpl = data.template
@@ -418,6 +645,19 @@ class KMZInspectorApp:
         x = max((screen_w - width) // 2, 0)
         y = max((screen_h - height) // 2, 0)
         self._root.geometry(f"{width}x{height}+{x}+{y}")
+
+    @staticmethod
+    def _center_toplevel_window(window: tk.Toplevel) -> None:
+        window.update_idletasks()
+
+        width = window.winfo_width()
+        height = window.winfo_height()
+        screen_w = window.winfo_screenwidth()
+        screen_h = window.winfo_screenheight()
+
+        x = max((screen_w - width) // 2, 0)
+        y = max((screen_h - height) // 2, 0)
+        window.geometry(f"{width}x{height}+{x}+{y}")
 
     def _configure_ttk_styles(self) -> None:
         style = ttk.Style(self._root)
