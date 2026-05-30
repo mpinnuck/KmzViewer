@@ -74,3 +74,40 @@ wpmz/
 - Mission config summary bar
 - Waypoint table: index, lat, lon, altitude, altitude mode, speed, type, gimbal pitch, action count
 - Detail pane (click any row): full coordinate data, all waypoint actions with parameters
+
+## Button Guide
+
+The toolbar includes five action buttons. Only **Open KMZ** is active at startup.
+After a KMZ is loaded successfully, the other four toolbar buttons become available.
+
+### 1) Open KMZ
+- Label: `⊕ Open KMZ`
+- What it does: Opens a file picker to select a `.kmz` file.
+- Result: Parses the archive and populates both panels (`template.kml` and `waylines.wpml`).
+- Tip: You can also launch from terminal with a file path argument:
+  - `python kmz_inspector.py path/to/mission.kmz`
+
+### 2) Reload
+- Label: `↺ Reload`
+- Availability: Enabled after a file is loaded.
+- What it does: Re-reads the currently loaded KMZ from disk.
+- Use when: The file was edited or replaced externally and you want fresh data in the UI.
+
+### 3) Copy All
+- Label: `⧉ Copy All`
+- Availability: Enabled after a file is loaded.
+- What it does: Copies a combined export of template metadata and waypoint data to clipboard.
+- Result: You can paste into notes, issue reports, or chat for quick sharing.
+
+### 4) GimbalPatch
+- Label: `⤓ GimbalPatch`
+- Availability: Enabled after a file is loaded.
+- What it does: Creates a patched copy of the current KMZ where waypoint gimbal pitch fields are filled from waypoint action parameters when present.
+- Output file naming: If input is `mission.kmz`, output is `mission_gp.kmz` in the same folder.
+- Result: The app automatically opens the patched file immediately after patching.
+
+### 5) View WPML
+- Label: `≡ View WPML`
+- Availability: Enabled after a file is loaded.
+- What it does: Opens a separate window showing formatted raw `waylines.wpml` XML with line numbers and syntax coloring.
+- In that window: Use **Copy To Clipboard** to copy the raw WPML text exactly as loaded.
