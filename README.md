@@ -102,7 +102,7 @@ After a KMZ is loaded successfully, the other five toolbar buttons become availa
 ### 4) Map View
 - Label: `◉ Map View`
 - Availability: Enabled after a file is loaded.
-- What it does: Opens an interactive browser map with waypoint markers and a connected path line.
+- What it does: Opens an interactive browser map with waypoint markers, a connected path line, and small side labels showing each waypoint number and altitude.
 
 ### 5) Google Earth
 - Label: `🌍 Google Earth`

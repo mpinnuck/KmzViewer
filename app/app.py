@@ -26,7 +26,7 @@ from app import theme as T
 class KMZInspectorApp:
 
     APP_TITLE = "KMZ Inspector"
-    APP_VERSION = "v4.0"
+    APP_VERSION = "v4.1"
 
     def __init__(self, preload_path: str | None = None) -> None:
         self._root = tk.Tk()
@@ -269,13 +269,13 @@ class KMZInspectorApp:
         self._status("Copied template data and waypoint list to clipboard")
 
     def _on_map_view_clicked(self) -> None:
-        coords = self._collect_waypoint_coords()
-        if not coords:
+        points = self._collect_waypoint_map_points()
+        if not points:
             self._status("No valid waypoint coordinates to plot")
             return
 
         file_label = Path(self._current_path).name if self._current_path else "KMZ Waypoints"
-        html = self._build_map_html(coords, file_label)
+        html = self._build_map_html(points, file_label)
 
         try:
             tmp = tempfile.NamedTemporaryFile(
@@ -707,12 +707,39 @@ class KMZInspectorApp:
             coords.append((wp.index, lat, lon))
         return coords
 
+    def _collect_waypoint_map_points(self) -> list[tuple[int, float, float, float | None]]:
+        if not self._current_data or not self._current_data.waylines:
+            return []
+
+        points: list[tuple[int, float, float, float | None]] = []
+        for wp in self._current_data.waylines.waypoints:
+            try:
+                lat = float(wp.latitude)
+                lon = float(wp.longitude)
+            except (TypeError, ValueError):
+                continue
+
+            altitude: float | None = None
+            try:
+                if wp.altitude:
+                    altitude = float(wp.altitude)
+            except (TypeError, ValueError):
+                altitude = None
+
+            points.append((wp.index, lat, lon, altitude))
+        return points
+
     @staticmethod
-    def _build_map_html(coords: list[tuple[int, float, float]], title: str) -> str:
+    def _build_map_html(points: list[tuple[int, float, float, float | None]], title: str) -> str:
         point_js = ",\n".join(
-            f"{{ idx: {idx}, lat: {lat:.8f}, lon: {lon:.8f} }}" for idx, lat, lon in coords
+            (
+                f"{{ idx: {idx}, lat: {lat:.8f}, lon: {lon:.8f}, alt: {alt:.2f} }}"
+                if alt is not None
+                else f"{{ idx: {idx}, lat: {lat:.8f}, lon: {lon:.8f}, alt: null }}"
+            )
+            for idx, lat, lon, alt in points
         )
-        polyline_js = ",\n".join(f"[{lat:.8f}, {lon:.8f}]" for _, lat, lon in coords)
+        polyline_js = ",\n".join(f"[{lat:.8f}, {lon:.8f}]" for _, lat, lon, _ in points)
 
         return f"""<!doctype html>
 <html lang=\"en\">
@@ -727,10 +754,22 @@ class KMZInspectorApp:
         .header {{ position: absolute; top: 12px; left: 12px; z-index: 900; background: rgba(255,255,255,0.94); padding: 8px 10px; border-radius: 8px; box-shadow: 0 1px 6px rgba(0,0,0,0.2); }}
         .header strong {{ display: block; font-size: 13px; }}
         .header span {{ font-size: 12px; color: #475467; }}
+        .wp-label {{
+            background: rgba(255,255,255,0.95);
+            border: 1px solid #b7c7e0;
+            border-radius: 10px;
+            box-shadow: 0 1px 4px rgba(0,0,0,0.15);
+            color: #0a254f;
+            font-size: 11px;
+            font-weight: 600;
+            line-height: 1.2;
+            padding: 2px 6px;
+        }}
+        .wp-label::before {{ display: none; }}
     </style>
 </head>
 <body>
-    <div class=\"header\"><strong>{title}</strong><span>{len(coords)} waypoint(s)</span></div>
+    <div class=\"header\"><strong>{title}</strong><span>{len(points)} waypoint(s)</span></div>
     <div id=\"map\"></div>
 
     <script src=\"https://unpkg.com/leaflet@1.9.4/dist/leaflet.js\" integrity=\"sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=\" crossorigin=\"\"></script>
@@ -747,7 +786,15 @@ class KMZInspectorApp:
         const path = L.polyline(line, {{ color: '#0b62ff', weight: 3 }}).addTo(map);
         points.forEach((p, i) => {{
             const marker = L.circleMarker([p.lat, p.lon], {{ radius: 5, color: '#0b62ff', fillColor: '#0b62ff', fillOpacity: 0.9 }}).addTo(map);
-            marker.bindPopup(`WP ${{p.idx || i + 1}}<br/>${{p.lat.toFixed(6)}}, ${{p.lon.toFixed(6)}}`);
+            const wpNumber = p.idx || i + 1;
+            const altitudeLabel = p.alt === null ? '—' : `${{Number(p.alt.toFixed(1)).toString()}}m`;
+            marker.bindTooltip(`${{wpNumber}} - ${{altitudeLabel}}`, {{
+                permanent: true,
+                direction: 'right',
+                offset: [8, 0],
+                className: 'wp-label'
+            }});
+            marker.bindPopup(`WP ${{wpNumber}}<br/>${{p.lat.toFixed(6)}}, ${{p.lon.toFixed(6)}}<br/>ALT ${{altitudeLabel}}`);
         }});
 
         if (line.length > 1) {{
