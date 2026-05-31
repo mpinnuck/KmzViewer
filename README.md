@@ -77,8 +77,8 @@ wpmz/
 
 ## Button Guide
 
-The toolbar includes five action buttons. Only **Open KMZ** is active at startup.
-After a KMZ is loaded successfully, the other four toolbar buttons become available.
+The toolbar includes four action buttons. Only **Open KMZ** is active at startup.
+After a KMZ is loaded successfully, the other three toolbar buttons become available.
 
 ### 1) Open KMZ
 - Label: `⊕ Open KMZ`
@@ -99,14 +99,7 @@ After a KMZ is loaded successfully, the other four toolbar buttons become availa
 - What it does: Copies a combined export of template metadata and waypoint data to clipboard.
 - Result: You can paste into notes, issue reports, or chat for quick sharing.
 
-### 4) GimbalPatch
-- Label: `⤓ GimbalPatch`
-- Availability: Enabled after a file is loaded.
-- What it does: Creates a patched copy of the current KMZ where waypoint gimbal pitch fields are filled from waypoint action parameters when present.
-- Output file naming: If input is `mission.kmz`, output is `mission_gp.kmz` in the same folder.
-- Result: The app automatically opens the patched file immediately after patching.
-
-### 5) View WPML
+### 4) View WPML
 - Label: `≡ View WPML`
 - Availability: Enabled after a file is loaded.
 - What it does: Opens a separate window showing formatted raw `waylines.wpml` XML with line numbers and syntax coloring.
