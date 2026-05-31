@@ -77,8 +77,8 @@ wpmz/
 
 ## Button Guide
 
-The toolbar includes four action buttons. Only **Open KMZ** is active at startup.
-After a KMZ is loaded successfully, the other three toolbar buttons become available.
+The toolbar includes six action buttons. Only **Open KMZ** is active at startup.
+After a KMZ is loaded successfully, the other five toolbar buttons become available.
 
 ### 1) Open KMZ
 - Label: `⊕ Open KMZ`
@@ -99,7 +99,18 @@ After a KMZ is loaded successfully, the other three toolbar buttons become avail
 - What it does: Copies a combined export of template metadata and waypoint data to clipboard.
 - Result: You can paste into notes, issue reports, or chat for quick sharing.
 
-### 4) View WPML
+### 4) Map View
+- Label: `◉ Map View`
+- Availability: Enabled after a file is loaded.
+- What it does: Opens an interactive browser map with waypoint markers and a connected path line.
+
+### 5) Google Earth
+- Label: `🌍 Google Earth`
+- Availability: Enabled after a file is loaded.
+- What it does: Exports waypoints to a temporary `.kml` file and tries to open it directly in Google Earth Pro.
+- Fallback: If Google Earth Pro is not installed, the app opens the generated KML with your default app.
+
+### 6) View WPML
 - Label: `≡ View WPML`
 - Availability: Enabled after a file is loaded.
 - What it does: Opens a separate window showing formatted raw `waylines.wpml` XML with line numbers and syntax coloring.

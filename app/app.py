@@ -10,9 +10,12 @@ from datetime import datetime
 from xml.dom import minidom
 import re
 import os
+import subprocess
+import tempfile
 import tkinter as tk
 from tkinter import filedialog, ttk, messagebox
 from pathlib import Path
+import webbrowser
 
 from app.kmz_parser import KMZParser, KMZData
 from app.template_panel import TemplatePanel
@@ -23,7 +26,7 @@ from app import theme as T
 class KMZInspectorApp:
 
     APP_TITLE = "KMZ Inspector"
-    APP_VERSION = "v3.0"
+    APP_VERSION = "v4.0"
 
     def __init__(self, preload_path: str | None = None) -> None:
         self._root = tk.Tk()
@@ -113,6 +116,34 @@ class KMZInspectorApp:
             state=tk.DISABLED,
         )
         self._copy_btn.pack(side=tk.LEFT, padx=(0, T.PAD), pady=6)
+
+        # Map view button
+        self._map_btn = tk.Button(
+            toolbar,
+            text="  ◉  Map View",
+            font=T.FONT_BUTTON,
+            bg=T.BG_HEADER, fg=T.FG_SECONDARY,
+            activebackground=T.BG_PANEL, activeforeground=T.FG_PRIMARY,
+            relief="flat", bd=0, padx=T.PAD_SMALL, pady=6,
+            cursor="hand2",
+            command=self._on_map_view_clicked,
+            state=tk.DISABLED,
+        )
+        self._map_btn.pack(side=tk.LEFT, padx=(0, T.PAD), pady=6)
+
+        # Google Earth button
+        self._earth_btn = tk.Button(
+            toolbar,
+            text="  🌍  Google Earth",
+            font=T.FONT_BUTTON,
+            bg=T.BG_HEADER, fg=T.FG_SECONDARY,
+            activebackground=T.BG_PANEL, activeforeground=T.FG_PRIMARY,
+            relief="flat", bd=0, padx=T.PAD_SMALL, pady=6,
+            cursor="hand2",
+            command=self._on_google_earth_clicked,
+            state=tk.DISABLED,
+        )
+        self._earth_btn.pack(side=tk.LEFT, padx=(0, T.PAD), pady=6)
 
         # View raw WPML button
         self._view_wpml_btn = tk.Button(
@@ -236,6 +267,76 @@ class KMZInspectorApp:
         self._root.clipboard_append(text)
         self._root.update()
         self._status("Copied template data and waypoint list to clipboard")
+
+    def _on_map_view_clicked(self) -> None:
+        coords = self._collect_waypoint_coords()
+        if not coords:
+            self._status("No valid waypoint coordinates to plot")
+            return
+
+        file_label = Path(self._current_path).name if self._current_path else "KMZ Waypoints"
+        html = self._build_map_html(coords, file_label)
+
+        try:
+            tmp = tempfile.NamedTemporaryFile(
+                mode="w",
+                encoding="utf-8",
+                suffix=".html",
+                prefix="kmz_waypoints_",
+                delete=False,
+            )
+            with tmp:
+                tmp.write(html)
+            map_path = Path(tmp.name)
+            webbrowser.open(map_path.as_uri())
+            self._status(f"Opened map view in browser: {map_path.name}")
+        except Exception as exc:
+            messagebox.showerror("Map View", f"Failed to open map view:\n{exc}")
+            self._status(f"Map view failed: {exc}")
+
+    def _on_google_earth_clicked(self) -> None:
+        coords = self._collect_waypoint_coords()
+        if not coords:
+            self._status("No valid waypoint coordinates to export")
+            return
+
+        try:
+            tmp = tempfile.NamedTemporaryFile(
+                mode="w",
+                encoding="utf-8",
+                suffix=".kml",
+                prefix="kmz_waypoints_",
+                delete=False,
+            )
+            with tmp:
+                tmp.write(self._build_kml_from_waypoints(coords))
+
+            kml_path = Path(tmp.name)
+            launched_google_earth = False
+
+            if os.name == "posix":
+                run_result = subprocess.run(
+                    ["open", "-a", "Google Earth Pro", str(kml_path)],
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                )
+                launched_google_earth = run_result.returncode == 0
+
+            if not launched_google_earth:
+                webbrowser.open(kml_path.as_uri())
+
+            if launched_google_earth:
+                self._status(f"Opened waypoints in Google Earth: {kml_path.name}")
+            else:
+                self._status(f"Exported waypoint KML: {kml_path.name}")
+                messagebox.showinfo(
+                    "Google Earth",
+                    "Google Earth Pro was not found. Opened the KML with your default app instead.",
+                )
+        except Exception as exc:
+            messagebox.showerror("Google Earth", f"Failed to export/launch KML:\n{exc}")
+            self._status(f"Google Earth export failed: {exc}")
 
     def _on_view_wpml_clicked(self) -> None:
         if not self._current_data or not self._current_data.waylines:
@@ -399,6 +500,8 @@ class KMZInspectorApp:
         # Enable reload
         self._reload_btn.config(state=tk.NORMAL, fg=T.FG_ACCENT)
         self._copy_btn.config(state=tk.NORMAL, fg=T.FG_ACCENT)
+        self._map_btn.config(state=tk.NORMAL, fg=T.FG_ACCENT)
+        self._earth_btn.config(state=tk.NORMAL, fg=T.FG_ACCENT)
         self._view_wpml_btn.config(state=tk.NORMAL, fg=T.FG_ACCENT)
 
         # Update window title
@@ -589,6 +692,118 @@ class KMZInspectorApp:
             lines.append("No waypoint data")
 
         return "\n".join(lines)
+
+    def _collect_waypoint_coords(self) -> list[tuple[int, float, float]]:
+        if not self._current_data or not self._current_data.waylines:
+            return []
+
+        coords: list[tuple[int, float, float]] = []
+        for wp in self._current_data.waylines.waypoints:
+            try:
+                lat = float(wp.latitude)
+                lon = float(wp.longitude)
+            except (TypeError, ValueError):
+                continue
+            coords.append((wp.index, lat, lon))
+        return coords
+
+    @staticmethod
+    def _build_map_html(coords: list[tuple[int, float, float]], title: str) -> str:
+        point_js = ",\n".join(
+            f"{{ idx: {idx}, lat: {lat:.8f}, lon: {lon:.8f} }}" for idx, lat, lon in coords
+        )
+        polyline_js = ",\n".join(f"[{lat:.8f}, {lon:.8f}]" for _, lat, lon in coords)
+
+        return f"""<!doctype html>
+<html lang=\"en\">
+<head>
+    <meta charset=\"utf-8\" />
+    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" />
+    <title>{title}</title>
+    <link rel=\"stylesheet\" href=\"https://unpkg.com/leaflet@1.9.4/dist/leaflet.css\" integrity=\"sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=\" crossorigin=\"\" />
+    <style>
+        html, body, #map {{ height: 100%; margin: 0; }}
+        body {{ font-family: Arial, sans-serif; background: #f7f8fa; }}
+        .header {{ position: absolute; top: 12px; left: 12px; z-index: 900; background: rgba(255,255,255,0.94); padding: 8px 10px; border-radius: 8px; box-shadow: 0 1px 6px rgba(0,0,0,0.2); }}
+        .header strong {{ display: block; font-size: 13px; }}
+        .header span {{ font-size: 12px; color: #475467; }}
+    </style>
+</head>
+<body>
+    <div class=\"header\"><strong>{title}</strong><span>{len(coords)} waypoint(s)</span></div>
+    <div id=\"map\"></div>
+
+    <script src=\"https://unpkg.com/leaflet@1.9.4/dist/leaflet.js\" integrity=\"sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=\" crossorigin=\"\"></script>
+    <script>
+        const points = [{point_js}];
+        const line = [{polyline_js}];
+
+        const map = L.map('map');
+        L.tileLayer('https://tile.openstreetmap.org/{{z}}/{{x}}/{{y}}.png', {{
+            maxZoom: 20,
+            attribution: '&copy; OpenStreetMap contributors'
+        }}).addTo(map);
+
+        const path = L.polyline(line, {{ color: '#0b62ff', weight: 3 }}).addTo(map);
+        points.forEach((p, i) => {{
+            const marker = L.circleMarker([p.lat, p.lon], {{ radius: 5, color: '#0b62ff', fillColor: '#0b62ff', fillOpacity: 0.9 }}).addTo(map);
+            marker.bindPopup(`WP ${{p.idx || i + 1}}<br/>${{p.lat.toFixed(6)}}, ${{p.lon.toFixed(6)}}`);
+        }});
+
+        if (line.length > 1) {{
+            map.fitBounds(path.getBounds(), {{ padding: [24, 24] }});
+        }} else if (line.length === 1) {{
+            map.setView(line[0], 17);
+        }} else {{
+            map.setView([0, 0], 2);
+        }}
+    </script>
+</body>
+</html>
+"""
+
+    @staticmethod
+    def _build_kml_from_waypoints(coords: list[tuple[int, float, float]]) -> str:
+        point_rows = []
+        line_coords = []
+        for idx, lat, lon in coords:
+            line_coords.append(f"{lon:.8f},{lat:.8f},0")
+            point_rows.append(
+                "\n".join([
+                    "    <Placemark>",
+                    f"      <name>WP {idx}</name>",
+                    "      <Point>",
+                    f"        <coordinates>{lon:.8f},{lat:.8f},0</coordinates>",
+                    "      </Point>",
+                    "    </Placemark>",
+                ])
+            )
+
+        line_block = ""
+        if len(line_coords) >= 2:
+            line_block = "\n".join([
+                "    <Placemark>",
+                "      <name>Waypoint Path</name>",
+                "      <LineString>",
+                "        <tessellate>1</tessellate>",
+                "        <coordinates>",
+                "          " + " ".join(line_coords),
+                "        </coordinates>",
+                "      </LineString>",
+                "    </Placemark>",
+            ])
+
+        all_placemarks = "\n".join([line_block, *point_rows]).strip()
+
+        return "\n".join([
+            "<?xml version=\"1.0\" encoding=\"UTF-8\"?>",
+            "<kml xmlns=\"http://www.opengis.net/kml/2.2\">",
+        "  <Document>",
+        "    <name>KMZ Inspector Waypoints</name>",
+        all_placemarks,
+        "  </Document>",
+        "</kml>",
+        ])
 
     def _center_window(self) -> None:
         self._root.update_idletasks()
