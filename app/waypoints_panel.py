@@ -27,7 +27,6 @@ _COLUMNS = [
     ("latitude",         "Latitude",      110,    tk.CENTER),
     ("longitude",        "Longitude",     110,    tk.CENTER),
     ("altitude",         "Alt (m)",        70,    tk.CENTER),
-    ("altitude_mode",    "Alt Mode",       78,    tk.CENTER),
     ("speed",            "Speed",         190,    tk.CENTER),
     ("waypoint_type",    "Type",           64,    tk.CENTER),
     ("gimbal_pitch",     "Gimbal °",       70,    tk.CENTER),
@@ -96,7 +95,7 @@ def _build_treeview(parent: tk.Widget) -> ttk.Treeview:
 
     for col_id, heading, width, anchor in _COLUMNS:
         tv.heading(col_id, text=heading)
-        tv.column(col_id, width=width, minwidth=40, anchor=anchor, stretch=(col_id == "altitude_mode"))
+        tv.column(col_id, width=width, minwidth=40, anchor=anchor, stretch=(col_id == "speed"))
 
     tv.tag_configure("odd",  background=T.BG_TREE)
     tv.tag_configure("even", background=T.BG_TREE_ALT)
@@ -269,7 +268,20 @@ class _MissionSummaryBar(tk.Frame):
         self._vars["finish"].set(mc.finish_action or "—")
         self._vars["rc_lost"].set(mc.execute_rc_lost_action or "—")
         self._vars["transit"].set(_spd(mc.global_transitional_speed))
-        self._vars["height"].set(mc.global_waypoint_height_mode or "—")
+        self._vars["height"].set(self._resolve_height_mode(data))
+
+    @staticmethod
+    def _resolve_height_mode(data: WaylinesData) -> str:
+        waypoint_modes = {
+            (wp.altitude_mode or "").strip()
+            for wp in data.waypoints
+            if (wp.altitude_mode or "").strip()
+        }
+        if len(waypoint_modes) == 1:
+            return next(iter(waypoint_modes))
+        if len(waypoint_modes) > 1:
+            return "Mixed"
+        return data.mission_config.global_waypoint_height_mode or "—"
 
     def clear(self) -> None:
         for v in self._vars.values():
@@ -399,7 +411,6 @@ class WaypointsPanel(tk.Frame):
                     lat_str,
                     lon_str,
                     alt_str,
-                    wp.altitude_mode or "—",
                     speed_str,
                     wp.waypoint_type or "—",
                     f"{wp.gimbal_pitch_angle}°" if wp.gimbal_pitch_angle else "—",

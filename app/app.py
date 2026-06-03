@@ -26,7 +26,7 @@ from app import theme as T
 class KMZInspectorApp:
 
     APP_TITLE = "KMZ Inspector"
-    APP_VERSION = "v4.2"
+    APP_VERSION = "v4.3"
 
     def __init__(self, preload_path: str | None = None) -> None:
         self._root = tk.Tk()
@@ -432,8 +432,31 @@ class KMZInspectorApp:
             yscroll.set(first, last)
             gutter.yview_moveto(first)
 
+        def _on_vertical_wheel(event: tk.Event) -> str:
+            delta = getattr(event, "delta", 0)
+            if delta == 0:
+                return "break"
+            # macOS often reports small deltas while Windows uses 120 steps.
+            units = int(-delta / 120) if abs(delta) >= 120 else (-1 if delta > 0 else 1)
+            txt.yview_scroll(units, "units")
+            gutter.yview_moveto(txt.yview()[0])
+            return "break"
+
+        def _on_horizontal_wheel(event: tk.Event) -> str:
+            delta = getattr(event, "delta", 0)
+            if delta == 0:
+                return "break"
+            units = int(-delta / 120) if abs(delta) >= 120 else (-1 if delta > 0 else 1)
+            txt.xview_scroll(units, "units")
+            return "break"
+
         yscroll.config(command=_sync_yview)
         xscroll.config(command=txt.xview)
+
+        txt.bind("<MouseWheel>", _on_vertical_wheel)
+        gutter.bind("<MouseWheel>", _on_vertical_wheel)
+        txt.bind("<Shift-MouseWheel>", _on_horizontal_wheel)
+        gutter.bind("<Shift-MouseWheel>", _on_horizontal_wheel)
 
         gutter.config(yscrollcommand=lambda first, last: None)
         txt.tag_configure("xml_tag", foreground="#8a1f11")
