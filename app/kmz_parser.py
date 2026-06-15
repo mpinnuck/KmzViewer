@@ -108,6 +108,10 @@ class WaypointAction:
     action_id: str = ""
     action_actuator_func: str = ""
     params: dict[str, str] = field(default_factory=dict)
+    # Action group context
+    group_id: str = ""
+    group_mode: str = ""
+    trigger_type: str = ""
 
 
 @dataclass
@@ -441,10 +445,23 @@ class KMZParser:
             action_groups = pm.findall(_tag(WPML_NS_ALT, "actionGroup"))
 
         for action_group in action_groups:
+            group_id   = _find_text(action_group, ns, "actionGroupId")
+            group_mode = _find_text(action_group, ns, "actionGroupMode")
+            trigger_node = action_group.find(_tag(ns, "actionTrigger"))
+            if trigger_node is None:
+                for _fb in (WPML_NS_ALT, WPML_NS_106, WPML_NS_UAV):
+                    trigger_node = action_group.find(_tag(_fb, "actionTrigger"))
+                    if trigger_node is not None:
+                        break
+            trigger_type = _find_text(trigger_node, ns, "actionTriggerType") if trigger_node is not None else ""
+
             for action_node in action_group.findall(_tag(ns, "action")):
                 wa = WaypointAction()
                 wa.action_id = _find_text(action_node, ns, "actionId")
                 wa.action_actuator_func = _find_text(action_node, ns, "actionActuatorFunc")
+                wa.group_id    = group_id
+                wa.group_mode  = group_mode
+                wa.trigger_type = trigger_type
                 actuator_params = action_node.find(_tag(ns, "actionActuatorFuncParam"))
                 if actuator_params is None:
                     actuator_params = action_node.find(_tag(WPML_NS_ALT, "actionActuatorFuncParam"))

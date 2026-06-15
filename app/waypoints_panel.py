@@ -34,6 +34,52 @@ _COLUMNS = [
 ]
 
 
+def _action_summary(act: "WaypointAction") -> str:
+    """Return a concise human-readable description of a single action."""
+    func = act.action_actuator_func
+    p = act.params
+    if func == "gimbalRotate":
+        pitch = p.get("gimbalPitchRotateAngle", "?")
+        yaw   = p.get("gimbalYawRotateAngle",   "?")
+        mode  = p.get("gimbalRotateMode", "")
+        return f"Gimbal rotate  pitch {pitch}°  yaw {yaw}°" + (f"  [{mode}]" if mode else "")
+    if func == "gimbalEvenlyRotate":
+        pitch = p.get("gimbalPitchRotateAngle", "?")
+        return f"Gimbal evenly rotate  pitch {pitch}°"
+    if func == "takePhoto":
+        suffix = p.get("fileSuffix", "")
+        return "Take photo" + (f"  [{suffix}]" if suffix else "")
+    if func == "startRecord":
+        return "Start recording"
+    if func == "stopRecord":
+        return "Stop recording"
+    if func == "panoShot":
+        submode = p.get("panoShotSubMode", "")
+        return "Panorama shot" + (f"  [{submode}]" if submode else "")
+    if func == "focus":
+        if p.get("isInfiniteFocus", "0") == "1":
+            return "Focus  [infinite]"
+        x, y = p.get("focusX", ""), p.get("focusY", "")
+        return f"Focus  ({x}, {y})" if x else "Focus"
+    if func == "zoom":
+        return f"Zoom  {p.get('focalLength', '?')} mm"
+    if func == "customDirName":
+        return f"Custom dir  [{p.get('directoryName', '')}]"
+    if func == "rotateYaw":
+        heading  = p.get("aircraftHeading", "?")
+        path_mode = p.get("aircraftPathMode", "")
+        return f"Rotate yaw  {heading}°" + (f"  [{path_mode}]" if path_mode else "")
+    if func == "hover":
+        return f"Hover  {p.get('hoverTime', '?')} s"
+    return func  # fallback: raw function name
+
+
+# Params that carry no useful display information
+_SKIP_PARAMS = {"payloadPositionIndex", "useGlobalPayloadLensIndex",
+                "gimbalPitchRotateEnable", "gimbalRollRotateEnable",
+                "gimbalYawRotateEnable", "gimbalRotateTimeEnable", "gimbalRotateTime"}
+
+
 def _fmt_altitude_m(raw: str) -> str:
     if not raw:
         return "—"
@@ -189,13 +235,36 @@ class _DetailPane(tk.Frame):
         row("Use Global Height",  wp.use_global_height_mode or "—")
 
         if wp.actions:
-            self._append(f"\n  ACTIONS  ({len(wp.actions)})\n", "section")
-            for i, act in enumerate(wp.actions, start=1):
-                self._append(f"\n  [{i}] Action ID {act.action_id} — ", "label")
-                self._append(f"{act.action_actuator_func}\n", "value")
-                for pname, pval in act.params.items():
-                    self._append(f"       {pname:<26}", "label")
-                    self._append(f"{pval}\n", "value")
+            # Group actions by their actionGroup ID (preserving insertion order)
+            groups: dict[str, list] = {}
+            for act in wp.actions:
+                gid = act.group_id or "?"
+                if gid not in groups:
+                    groups[gid] = []
+                groups[gid].append(act)
+
+            n_groups = len(groups)
+            n_actions = len(wp.actions)
+            self._append(
+                f"\n  ACTIONS  ({n_actions} action{'s' if n_actions != 1 else ''}"
+                f" in {n_groups} group{'s' if n_groups != 1 else ''})\n",
+                "section",
+            )
+
+            for gid, acts in groups.items():
+                first = acts[0]
+                trigger = first.trigger_type or "—"
+                mode    = first.group_mode    or "—"
+                self._append(f"\n  Group {gid}  ·  {trigger}  ·  {mode}\n", "label")
+                for act in acts:
+                    summary = _action_summary(act)
+                    self._append(f"    [{act.action_id}] ", "label")
+                    self._append(f"{summary}\n", "value")
+                    for pname, pval in act.params.items():
+                        if pname in _SKIP_PARAMS or pval == "":
+                            continue
+                        self._append(f"           {pname:<28}", "label")
+                        self._append(f"{pval}\n", "value")
         else:
             self._append("\n  ACTIONS\n", "section")
             self._append("  (none)\n", "none")

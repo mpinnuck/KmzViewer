@@ -26,7 +26,7 @@ from app import theme as T
 class KMZInspectorApp:
 
     APP_TITLE = "KMZ Inspector"
-    APP_VERSION = "v4.3"
+    APP_VERSION = "v4.4"
 
     def __init__(self, preload_path: str | None = None) -> None:
         self._root = tk.Tk()
