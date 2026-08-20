@@ -112,6 +112,8 @@ class WaypointAction:
     group_id: str = ""
     group_mode: str = ""
     trigger_type: str = ""
+    group_start_index: str = ""
+    group_end_index: str = ""
 
 
 @dataclass
@@ -199,16 +201,57 @@ PAYLOAD_ENUM_MAP: dict[str, str] = {
 class KMZParser:
 
     @staticmethod
-    def _extract_gimbal_pitch_from_actions(actions: list[WaypointAction]) -> str:
-        """Return gimbal pitch from the first gimbal-related action params."""
+    def _to_int(value: str) -> Optional[int]:
+        value = (value or "").strip()
+        if not value:
+            return None
+        try:
+            return int(value)
+        except ValueError:
+            return None
+
+    @staticmethod
+    def _extract_gimbal_pitch_from_actions(actions: list[WaypointAction], waypoint_index: int) -> str:
+        """Return gimbal pitch from actions whose group end matches this waypoint.
+
+        If group end index is absent, treat the action as local to the current waypoint.
+        """
         for action in actions:
             func = (action.action_actuator_func or "").strip().lower()
             if func not in {"gimbalevenlyrotate", "gimbalrotate"}:
+                continue
+            end_index = KMZParser._to_int(action.group_end_index)
+            if end_index is not None and end_index != waypoint_index:
                 continue
             value = action.params.get("gimbalPitchRotateAngle", "").strip()
             if value:
                 return value
         return ""
+
+    @staticmethod
+    def _apply_segment_end_gimbal_pitch(waypoints: list[Waypoint]) -> None:
+        """Apply gimbal pitch to the waypoint where each action group segment ends."""
+        by_index = {wp.index: wp for wp in waypoints}
+        for wp in waypoints:
+            for action in wp.actions:
+                func = (action.action_actuator_func or "").strip().lower()
+                if func not in {"gimbalevenlyrotate", "gimbalrotate"}:
+                    continue
+
+                pitch = action.params.get("gimbalPitchRotateAngle", "").strip()
+                if not pitch:
+                    continue
+
+                end_index = KMZParser._to_int(action.group_end_index)
+                if end_index is None:
+                    continue
+
+                target = by_index.get(end_index)
+                if target is None:
+                    continue
+
+                target.gimbal_pitch_angle = pitch
+                target.gimbal_pitch_source = "action_end"
 
     @staticmethod
     def _is_zero_angle(value: str) -> bool:
@@ -317,6 +360,7 @@ class KMZParser:
 
             # Sort by index in case they're out of order
             wl.waypoints.sort(key=lambda w: w.index)
+            KMZParser._apply_segment_end_gimbal_pitch(wl.waypoints)
 
         except ET.ParseError as exc:
             wl.raw_xml = f"XML parse error: {exc}\n\n{raw_xml}"
@@ -445,6 +489,8 @@ class KMZParser:
             action_groups = pm.findall(_tag(WPML_NS_ALT, "actionGroup"))
 
         for action_group in action_groups:
+            start_index_raw = _find_text(action_group, ns, "actionGroupStartIndex")
+            end_index_raw = _find_text(action_group, ns, "actionGroupEndIndex")
             group_id   = _find_text(action_group, ns, "actionGroupId")
             group_mode = _find_text(action_group, ns, "actionGroupMode")
             trigger_node = action_group.find(_tag(ns, "actionTrigger"))
@@ -462,6 +508,8 @@ class KMZParser:
                 wa.group_id    = group_id
                 wa.group_mode  = group_mode
                 wa.trigger_type = trigger_type
+                wa.group_start_index = start_index_raw
+                wa.group_end_index = end_index_raw
                 actuator_params = action_node.find(_tag(ns, "actionActuatorFuncParam"))
                 if actuator_params is None:
                     actuator_params = action_node.find(_tag(WPML_NS_ALT, "actionActuatorFuncParam"))
@@ -471,7 +519,7 @@ class KMZParser:
                         wa.params[local] = (child.text or "").strip()
                 wp.actions.append(wa)
 
-        action_gimbal_pitch_angle = KMZParser._extract_gimbal_pitch_from_actions(wp.actions)
+        action_gimbal_pitch_angle = KMZParser._extract_gimbal_pitch_from_actions(wp.actions, wp.index)
 
         # Dronelink-generated waylines often set waypoint pitch to 0 and keep
         # the effective pitch in action params. Prefer that action value when present.

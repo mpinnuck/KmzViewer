@@ -229,7 +229,7 @@ class _DetailPane(tk.Frame):
             speed_tag = "value"
         row("Speed",              speed_str, speed_tag)
         row("Waypoint Type",      wp.waypoint_type or "—")
-        gimbal_tag = "good" if wp.gimbal_pitch_source == "action" else "value"
+        gimbal_tag = "good" if wp.gimbal_pitch_source in {"action", "action_end"} else "value"
         row("Gimbal Pitch",       f"{wp.gimbal_pitch_angle}°" if wp.gimbal_pitch_angle else "—", gimbal_tag)
         row("Use Global Speed",   wp.use_global_speed or "—")
         row("Use Global Height",  wp.use_global_height_mode or "—")
@@ -464,7 +464,7 @@ class WaypointsPanel(tk.Frame):
         for i, wp in enumerate(waypoints):
             tag = "even" if i % 2 == 0 else "odd"
             tags = [tag]
-            if wp.gimbal_pitch_source == "action":
+            if wp.gimbal_pitch_source in {"action", "action_end"}:
                 tags.append("action_gimbal")
             speed_str = _fmt_speed_with_kmh(wp.speed)
 

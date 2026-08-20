@@ -75,6 +75,10 @@ wpmz/
 - Waypoint table: index, lat, lon, altitude, altitude mode, speed, type, gimbal pitch, action count
 - Detail pane (click any row): full coordinate data, all waypoint actions with parameters
 
+Gimbal pitch display note:
+- In the waypoint table, gimbal pitch is shown at the segment end waypoint (`actionGroupEndIndex`).
+- This means the pitch shown on a row typically comes from the previous waypoint's action group when that group ends at the current waypoint.
+
 ## Button Guide
 
 The toolbar includes six action buttons. Only **Open KMZ** is active at startup.
