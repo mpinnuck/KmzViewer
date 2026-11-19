@@ -18,6 +18,7 @@ from pathlib import Path
 import webbrowser
 
 from app.kmz_parser import KMZParser, KMZData
+from app.map_server import MapServer
 from app.template_panel import TemplatePanel
 from app.waypoints_panel import WaypointsPanel
 from app import theme as T
@@ -26,7 +27,7 @@ from app import theme as T
 class KMZInspectorApp:
 
     APP_TITLE = "KMZ Inspector"
-    APP_VERSION = "v4.5"
+    APP_VERSION = "v5.0"
 
     def __init__(self, preload_path: str | None = None) -> None:
         self._root = tk.Tk()
@@ -38,6 +39,7 @@ class KMZInspectorApp:
         self._current_path: str | None = None
         self._current_data: KMZData | None = None
         self._preload_path = preload_path
+        self._map_server: MapServer | None = None
 
         self._configure_ttk_styles()
         self._build_ui()
@@ -51,7 +53,11 @@ class KMZInspectorApp:
     # ------------------------------------------------------------------
 
     def run(self) -> None:
-        self._root.mainloop()
+        try:
+            self._root.mainloop()
+        finally:
+            if self._map_server is not None:
+                self._map_server.close()
 
     # ------------------------------------------------------------------
     # UI construction
@@ -278,21 +284,23 @@ class KMZInspectorApp:
         html = self._build_map_html(points, file_label)
 
         try:
-            tmp = tempfile.NamedTemporaryFile(
-                mode="w",
-                encoding="utf-8",
-                suffix=".html",
-                prefix="kmz_waypoints_",
-                delete=False,
-            )
-            with tmp:
-                tmp.write(html)
-            map_path = Path(tmp.name)
-            webbrowser.open(map_path.as_uri())
-            self._status(f"Opened map view in browser: {map_path.name}")
+            if self._map_server is None:
+                self._map_server = MapServer()
+                self._root.after(200, self._check_map_closed)
+            map_url = self._map_server.add(html)
+            if not webbrowser.open(map_url):
+                raise OSError("No browser could be opened")
+            self._status("Opened map view in browser")
         except Exception as exc:
             messagebox.showerror("Map View", f"Failed to open map view:\n{exc}")
             self._status(f"Map view failed: {exc}")
+
+    def _check_map_closed(self) -> None:
+        if self._map_server is not None and self._map_server.consume_closed():
+            self._root.deiconify()
+            self._root.lift()
+            self._root.focus_force()
+        self._root.after(200, self._check_map_closed)
 
     def _on_google_earth_clicked(self) -> None:
         coords = self._collect_waypoint_coords()
@@ -771,6 +779,15 @@ class KMZInspectorApp:
     <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" />
     <title>{title}</title>
     <link rel=\"stylesheet\" href=\"https://unpkg.com/leaflet@1.9.4/dist/leaflet.css\" integrity=\"sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=\" crossorigin=\"\" />
+    <link rel=\"stylesheet\" href=\"https://unpkg.com/maplibre-gl@6.3.0/dist/maplibre-gl.css\" />
+    <script type=\"importmap\">
+        {{
+            \"imports\": {{
+                \"leaflet\": \"https://unpkg.com/leaflet@1.9.4/dist/leaflet-src.esm.js\",
+                \"maplibre-gl\": \"https://unpkg.com/maplibre-gl@6.3.0/dist/maplibre-gl.mjs\"
+            }}
+        }}
+    </script>
     <style>
         html, body, #map {{ height: 100%; margin: 0; }}
         body {{ font-family: Arial, sans-serif; background: #f7f8fa; }}
@@ -795,16 +812,26 @@ class KMZInspectorApp:
     <div class=\"header\"><strong>{title}</strong><span>{len(points)} waypoint(s)</span></div>
     <div id=\"map\"></div>
 
-    <script src=\"https://unpkg.com/leaflet@1.9.4/dist/leaflet.js\" integrity=\"sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=\" crossorigin=\"\"></script>
     <script>
+        window.addEventListener('pagehide', () => {{
+            if (!navigator.sendBeacon(window.location.pathname + '/closed')) {{
+                console.error('Could not notify KMZ Inspector that the map was closed.');
+            }}
+        }});
+    </script>
+    <script type="module">
+        import * as L from 'leaflet';
+        import {{ maplibreGL }} from 'https://unpkg.com/@maplibre/maplibre-gl-leaflet@0.1.4/dist/leaflet-maplibre-gl.mjs';
+
         const points = [{point_js}];
         const line = [{polyline_js}];
 
-        const map = L.map('map');
-        L.tileLayer('https://tile.openstreetmap.org/{{z}}/{{x}}/{{y}}.png', {{
-            maxZoom: 20,
-            attribution: '&copy; OpenStreetMap contributors'
-        }}).addTo(map);
+        const map = L.map('map', {{
+            maxBounds: [[180, -Infinity], [-180, Infinity]],
+            maxBoundsViscosity: 1,
+            minZoom: 1
+        }});
+        maplibreGL({{ style: 'https://tiles.openfreemap.org/styles/liberty' }}).addTo(map);
 
         const path = L.polyline(line, {{ color: '#0b62ff', weight: 3 }}).addTo(map);
         points.forEach((p, i) => {{

@@ -18,4 +18,5 @@ dist/
 *.zip
 
 # Local test files
-tests/
+tests/*
+!tests/test_map_server.py

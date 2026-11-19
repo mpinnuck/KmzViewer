@@ -107,6 +107,9 @@ After a KMZ is loaded successfully, the other five toolbar buttons become availa
 - Label: `◉ Map View`
 - Availability: Enabled after a file is loaded.
 - What it does: Opens an interactive browser map with waypoint markers, a connected path line, and small side labels showing each waypoint number and altitude.
+- The basemap uses OpenFreeMap tiles and requires an internet connection.
+- Map View is served locally while KMZ Inspector is open; reopen it from the app if it has been closed.
+- Leaving the map page returns focus to KMZ Inspector, including when navigating away or reloading.
 
 ### 5) Google Earth
 - Label: `🌍 Google Earth`
